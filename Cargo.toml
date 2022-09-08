@@ -1,0 +1,8 @@
+[package]
+name = "ozone"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.64"
+nix = { version = "0.25.0", features = [ "fs", ] }

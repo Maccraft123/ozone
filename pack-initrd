@@ -1,0 +1,11 @@
+#!/bin/bash
+if [ -z "$1" ]; then
+	echo "First argument has to be name of file to include into initrd"
+	exit 1
+fi
+
+mkdir -p /tmp/initrd-maker
+cp "$1" /tmp/initrd-maker/init
+chmod a+x /tmp/initrd-maker/init
+
+echo init | cpio -D /tmp/initrd-maker --no-absolute-filenames -ov --format=newc > out.cpio
