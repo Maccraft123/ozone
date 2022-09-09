@@ -42,6 +42,10 @@ impl Config {
 }
 
 pub fn init(config: &Config) -> Result<()> {
+    if std::process::id() != 1 {
+        return Ok(())
+    }
+
     if config.stdio {
         // open up what-will-be stdin and stdout
         let input = open("/dev/console", OFlag::O_RDONLY, Mode::empty())?;
