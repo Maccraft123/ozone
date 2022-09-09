@@ -3,6 +3,9 @@ name = "ozone"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+path = "src/basic.rs"
+
 [dependencies]
 anyhow = "1.0.64"
-nix = { version = "0.25.0", features = [ "fs", ] }
+nix = { version = "0.25.0", features = [ "fs" ] }
