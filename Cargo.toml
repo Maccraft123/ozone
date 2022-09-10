@@ -8,4 +8,4 @@ path = "src/basic.rs"
 
 [dependencies]
 anyhow = "1.0.64"
-nix = { version = "0.25.0", features = [ "fs" ] }
+nix = { version = "0.25.0", features = [ "fs", "mount" ] }

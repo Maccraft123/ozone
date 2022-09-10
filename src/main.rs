@@ -7,9 +7,9 @@ use crate::basic::{
 use anyhow::Result;
 
 fn main() -> Result<()> {
-    let conf = Config::new();
+    let conf = Config::new().mount_boot(true).mount_sys(true);
+    println!("Hello world!");
     init(&conf)?;
     println!("Hello world!");
-    std::thread::sleep(std::time::Duration::from_secs(5));
-    Ok(())
+    loop {}
 }

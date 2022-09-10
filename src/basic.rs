@@ -6,12 +6,18 @@ use nix::{
     unistd::{
         dup2,
         close,
+        mkdir,
     },
     sys::{
         stat::Mode,
     },
+    mount::{
+        MsFlags,
+        mount,
+    },
 };
 use anyhow::Result;
+use std::path::PathBuf;
 
 pub struct Config {
     stdio: bool,
@@ -41,10 +47,22 @@ impl Config {
     }
 }
 
-pub fn init(config: &Config) -> Result<()> {
-    if std::process::id() != 1 {
-        return Ok(())
+fn debug_dir(dir: &str) -> Result<()> {
+    let paths = std::fs::read_dir(dir).unwrap();
+    println!("{}", dir);
+    for path in paths {
+        println!("{:#?}", path);
     }
+    Ok(())
+}
+
+pub fn init(config: &Config) -> Result<()> {
+    // TODO: last time i tried it paniced for some reason on getpid()
+    //if std::env::args().collect::<Vec<String>>().get(0).as_deref() != Some(&"/init".to_string()) {
+    //    return Ok(())
+    //}
+
+    mount(Some("none"), "/dev", Some("devtmpfs"), MsFlags::empty(), Some(""))?;
 
     if config.stdio {
         // open up what-will-be stdin and stdout
@@ -63,11 +81,21 @@ pub fn init(config: &Config) -> Result<()> {
             close(output)?;
         }
     }
-    if config.mount_boot {
-        todo!("Mounting /boot partition from BootCurrent efivar");
-    }
+
     if config.mount_sys {
-        todo!("Mounting /sys filesystem");
+        mkdir("/sys/", Mode::from_bits(0o777).unwrap())?;
+        mount(Some("none"), "/sys", Some("sysfs"), MsFlags::empty(), Some(""))?;
+
+        let has_efi = PathBuf::from("/sys/firmware/efi").exists();
+        if has_efi {
+            mount(Some("efivarfs"), "/sys/firmware/efi/efivars", Some("efivarfs"), MsFlags::empty(), Some(""))?;
+        }
+    }
+
+    if config.mount_boot {
+        mkdir("/boot", Mode::from_bits(0o777).unwrap())?;
+        //mount(Some("none"), "/sys", Some("sysfs"), MsFlags::empty(), Some(""))?;
+        println!("mounting /boot is todo");
     }
 
     Ok(())
