@@ -9,3 +9,7 @@ path = "src/basic.rs"
 [dependencies]
 anyhow = "1.0.64"
 nix = { version = "0.25.0", features = [ "fs", "mount" ] }
+efivar = "0.2.1"
+uefi = "0.17.0"
+uuid = "1.1.2"
+gpt = "3"

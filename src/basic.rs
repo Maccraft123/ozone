@@ -15,9 +15,14 @@ use nix::{
         MsFlags,
         mount,
     },
+    dir::Dir,
 };
 use anyhow::Result;
 use std::path::PathBuf;
+use efivar::efi::VariableName;
+use uefi::CStr16;
+use uefi::proto::device_path::{PartitionFormat, PartitionSignature, DevicePath};
+use gpt::GptConfig;
 
 pub struct Config {
     stdio: bool,
@@ -62,7 +67,7 @@ pub fn init(config: &Config) -> Result<()> {
     //    return Ok(())
     //}
 
-    mount(Some("none"), "/dev", Some("devtmpfs"), MsFlags::empty(), Some(""))?;
+    //mount(Some("none"), "/dev", Some("devtmpfs"), MsFlags::empty(), Some(""))?;
 
     if config.stdio {
         // open up what-will-be stdin and stdout
@@ -93,9 +98,73 @@ pub fn init(config: &Config) -> Result<()> {
     }
 
     if config.mount_boot {
-        mkdir("/boot", Mode::from_bits(0o777).unwrap())?;
-        //mount(Some("none"), "/sys", Some("sysfs"), MsFlags::empty(), Some(""))?;
-        println!("mounting /boot is todo");
+        let efi_mgr = efivar::system();
+        let bootcurrent = VariableName::new("BootCurrent");
+        let mut buf: [u8; 1024] = [0u8; 1024];
+        let mut buf_cur: [u8; 2] = [0u8; 2];
+        let mut esp_uuid = None;
+        if let Ok(_) = efi_mgr.read(&bootcurrent, &mut buf_cur) {
+            let cur = buf_cur[0] as u16 + buf_cur[1] as u16 * 256;
+            let cur_var = VariableName::new(&format!("Boot{:#04}", cur));
+
+            if let Ok(_) = efi_mgr.read(&cur_var, &mut buf) {
+                let desc_start_offset = (32+16)/8;
+                let desc = unsafe { CStr16::from_ptr(buf[desc_start_offset..].as_ptr().cast()) };
+                let desc_end_offset = desc_start_offset + desc.num_bytes();
+
+                let device_path: &DevicePath = unsafe {
+                    std::mem::transmute(&buf[desc_end_offset..])
+                };
+
+                for node in device_path.node_iter() {
+                    if let Some(hdd) = node.as_hard_drive_media_device_path() {
+                        if hdd.partition_format() == PartitionFormat::GPT {
+                            if let Some(PartitionSignature::GUID(uuid)) = hdd.partition_signature() {
+                                esp_uuid = Some(uuid);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut esp_path = None;
+        if let Some(uuid) = esp_uuid {
+            eprintln!("Found esp uuid: {}", uuid);
+            if let Ok(mut blocks) = Dir::open("/sys/block/", OFlag::O_DIRECTORY | OFlag::O_RDONLY, Mode::empty()) {
+                let blocks_iter = blocks.iter();
+                for block in blocks_iter {
+                    if let Ok(disk) = block {
+                        let name = disk.file_name().to_str().unwrap();
+                        if name.starts_with('.') {
+                            continue;
+                        }
+                        let dev_disk = PathBuf::from(format!("/dev/{}", name));
+                        let gpt_cfg = GptConfig::new().writable(false);
+                        if let Ok(gpt_disk) = gpt_cfg.open(dev_disk) {
+                            for (i, part) in gpt_disk.partitions() {
+                                if format!("{}", uuid) == format!("{}", part.part_guid) {
+                                    let with_p = PathBuf::from(format!("/dev/{}p{}", name, i));
+                                    let without_p = PathBuf::from(format!("/dev/{}{}", name, i));
+
+                                    if with_p.exists() {
+                                        esp_path = Some(with_p);
+                                    } else if without_p.exists() {
+                                        esp_path = Some(without_p);
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(path) = esp_path {
+            mkdir("/boot/", Mode::from_bits(0o777).unwrap())?;
+            mount(Some(&path), "/boot", Some("vfat"), MsFlags::empty(), Some(""))?;
+        }
     }
 
     Ok(())

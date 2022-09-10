@@ -7,8 +7,7 @@ use crate::basic::{
 use anyhow::Result;
 
 fn main() -> Result<()> {
-    let conf = Config::new().mount_boot(true).mount_sys(true);
-    println!("Hello world!");
+    let conf = Config::new().stdio(true).mount_boot(true).mount_sys(true);
     init(&conf)?;
     println!("Hello world!");
     loop {}
