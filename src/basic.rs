@@ -67,7 +67,7 @@ pub fn init(config: &Config) -> Result<()> {
     //    return Ok(())
     //}
 
-    //mount(Some("none"), "/dev", Some("devtmpfs"), MsFlags::empty(), Some(""))?;
+    mount(Some("none"), "/dev", Some("devtmpfs"), MsFlags::empty(), Some(""))?;
 
     if config.stdio {
         // open up what-will-be stdin and stdout
