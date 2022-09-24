@@ -18,7 +18,12 @@ use nix::{
     dir::Dir,
 };
 use anyhow::Result;
-use std::path::PathBuf;
+use std::{
+    collections::HashSet,
+    time::Duration,
+    path::PathBuf,
+    thread,
+};
 use efivar::efi::VariableName;
 use uefi::CStr16;
 use uefi::proto::device_path::{PartitionFormat, PartitionSignature, DevicePath};
@@ -128,36 +133,45 @@ pub fn init(config: &Config) -> Result<()> {
             }
         }
 
+        let mut seen_device_set = HashSet::new();
         let mut esp_path = None;
         if let Some(uuid) = esp_uuid {
-            eprintln!("Found esp uuid: {}", uuid);
-            if let Ok(mut blocks) = Dir::open("/sys/block/", OFlag::O_DIRECTORY | OFlag::O_RDONLY, Mode::empty()) {
-                let blocks_iter = blocks.iter();
-                for block in blocks_iter {
-                    if let Ok(disk) = block {
-                        let name = disk.file_name().to_str().unwrap();
-                        if name.starts_with('.') {
-                            continue;
-                        }
-                        let dev_disk = PathBuf::from(format!("/dev/{}", name));
-                        let gpt_cfg = GptConfig::new().writable(false);
-                        if let Ok(gpt_disk) = gpt_cfg.open(dev_disk) {
-                            for (i, part) in gpt_disk.partitions() {
-                                if format!("{}", uuid) == format!("{}", part.part_guid) {
-                                    let with_p = PathBuf::from(format!("/dev/{}p{}", name, i));
-                                    let without_p = PathBuf::from(format!("/dev/{}{}", name, i));
+            while esp_path.is_none() {
+                if let Ok(mut blocks) = Dir::open("/sys/block/", OFlag::O_DIRECTORY | OFlag::O_RDONLY, Mode::empty()) {
+                    let blocks_iter = blocks.iter();
+                    for block in blocks_iter {
+                        if let Ok(disk) = block {
+                            if seen_device_set.contains(&disk) {
+                                continue;
+                            }
 
-                                    if with_p.exists() {
-                                        esp_path = Some(with_p);
-                                    } else if without_p.exists() {
-                                        esp_path = Some(without_p);
+                            let name = disk.file_name().to_str().unwrap();
+                            if name.starts_with('.') {
+                                continue;
+                            }
+                            let dev_disk = PathBuf::from(format!("/dev/{}", name));
+                            let gpt_cfg = GptConfig::new().writable(false);
+                            if let Ok(gpt_disk) = gpt_cfg.open(dev_disk) {
+                                for (i, part) in gpt_disk.partitions() {
+                                    if format!("{}", uuid) == format!("{}", part.part_guid) {
+                                        let with_p = PathBuf::from(format!("/dev/{}p{}", name, i));
+                                        let without_p = PathBuf::from(format!("/dev/{}{}", name, i));
+
+                                        if with_p.exists() {
+                                            esp_path = Some(with_p);
+                                        } else if without_p.exists() {
+                                            esp_path = Some(without_p);
+                                        }
+                                        break;
                                     }
-                                    break;
                                 }
                             }
+
+                            seen_device_set.insert(disk);
                         }
                     }
                 }
+                thread::sleep(Duration::from_millis(100));
             }
         }
 
