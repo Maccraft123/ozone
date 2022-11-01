@@ -135,53 +135,53 @@ pub fn init(config: &Config) -> Result<()> {
                     }
                 }
             }
+        }
 
-            let mut seen_device_set = HashSet::new();
-            while esp_path.is_none() {
-                if let Ok(mut blocks) = Dir::open("/sys/block/", OFlag::O_DIRECTORY | OFlag::O_RDONLY, Mode::empty()) {
-                    let blocks_iter = blocks.iter();
-                    for block in blocks_iter {
-                        if let Ok(disk) = block {
-                            if seen_device_set.contains(&disk) {
-                                continue;
-                            }
+        let mut seen_device_set = HashSet::new();
+        while esp_path.is_none() {
+            if let Ok(mut blocks) = Dir::open("/sys/block/", OFlag::O_DIRECTORY | OFlag::O_RDONLY, Mode::empty()) {
+                let blocks_iter = blocks.iter();
+                for block in blocks_iter {
+                    if let Ok(disk) = block {
+                        if seen_device_set.contains(&disk) {
+                            continue;
+                        }
 
-                            let name = disk.file_name().to_str().unwrap();
-                            if name.starts_with('.') {
-                                continue;
-                            }
-                            let dev_disk = PathBuf::from(format!("/dev/{}", name));
-                            let gpt_cfg = GptConfig::new().writable(false);
-                            if let Ok(gpt_disk) = gpt_cfg.open(dev_disk) {
-                                for (i, part) in gpt_disk.partitions() {
-                                    let is_match;
-                                    
-                                    if let Some(uuid) = esp_uuid {
-                                        is_match = format!("{}", uuid) == format!("{}", part.part_guid);
-                                    } else {
-                                        is_match = part.name == "acetone_boot";
+                        let name = disk.file_name().to_str().unwrap();
+                        if name.starts_with('.') {
+                            continue;
+                        }
+                        let dev_disk = PathBuf::from(format!("/dev/{}", name));
+                        let gpt_cfg = GptConfig::new().writable(false);
+                        if let Ok(gpt_disk) = gpt_cfg.open(dev_disk) {
+                            for (i, part) in gpt_disk.partitions() {
+                                let is_match;
+
+                                if let Some(uuid) = esp_uuid {
+                                    is_match = format!("{}", uuid) == format!("{}", part.part_guid);
+                                } else {
+                                    is_match = part.name == "acetone_boot";
+                                }
+
+                                if is_match {
+                                    let with_p = PathBuf::from(format!("/dev/{}p{}", name, i));
+                                    let without_p = PathBuf::from(format!("/dev/{}{}", name, i));
+
+                                    if with_p.exists() {
+                                        esp_path = Some(with_p);
+                                    } else if without_p.exists() {
+                                        esp_path = Some(without_p);
                                     }
-
-                                    if is_match {
-                                        let with_p = PathBuf::from(format!("/dev/{}p{}", name, i));
-                                        let without_p = PathBuf::from(format!("/dev/{}{}", name, i));
-
-                                        if with_p.exists() {
-                                            esp_path = Some(with_p);
-                                        } else if without_p.exists() {
-                                            esp_path = Some(without_p);
-                                        }
-                                        break;
-                                    }
+                                    break;
                                 }
                             }
-
-                            seen_device_set.insert(disk);
                         }
+
+                        seen_device_set.insert(disk);
                     }
                 }
-                thread::sleep(Duration::from_millis(100));
             }
+            thread::sleep(Duration::from_millis(100));
         }
 
         if let Some(path) = esp_path {
