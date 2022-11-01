@@ -67,10 +67,9 @@ fn debug_dir(dir: &str) -> Result<()> {
 }
 
 pub fn init(config: &Config) -> Result<()> {
-    // TODO: last time i tried it paniced for some reason on getpid()
-    //if std::env::args().collect::<Vec<String>>().get(0).as_deref() != Some(&"/init".to_string()) {
-    //    return Ok(())
-    //}
+    if std::process::id() != 1 {
+        return Ok(())
+    }
 
     mount(Some("none"), "/dev", Some("devtmpfs"), MsFlags::empty(), Some(""))?;
 
@@ -92,17 +91,18 @@ pub fn init(config: &Config) -> Result<()> {
         }
     }
 
+    let has_efi = PathBuf::from("/sys/firmware/efi").exists();
+    
     if config.mount_sys {
         mkdir("/sys/", Mode::from_bits(0o777).unwrap())?;
         mount(Some("none"), "/sys", Some("sysfs"), MsFlags::empty(), Some(""))?;
 
-        let has_efi = PathBuf::from("/sys/firmware/efi").exists();
         if has_efi {
             mount(Some("efivarfs"), "/sys/firmware/efi/efivars", Some("efivarfs"), MsFlags::empty(), Some(""))?;
         }
     }
 
-    if config.mount_boot {
+    if config.mount_boot && has_efi {
         let efi_mgr = efivar::system();
         let bootcurrent = VariableName::new("BootCurrent");
         let mut buf: [u8; 1024] = [0u8; 1024];
