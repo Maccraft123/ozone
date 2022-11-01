@@ -102,40 +102,41 @@ pub fn init(config: &Config) -> Result<()> {
         }
     }
 
-    if config.mount_boot && has_efi {
-        let efi_mgr = efivar::system();
-        let bootcurrent = VariableName::new("BootCurrent");
-        let mut buf: [u8; 1024] = [0u8; 1024];
-        let mut buf_cur: [u8; 2] = [0u8; 2];
+    if config.mount_boot {
         let mut esp_uuid = None;
-        if let Ok(_) = efi_mgr.read(&bootcurrent, &mut buf_cur) {
-            let cur = buf_cur[0] as u16 + buf_cur[1] as u16 * 256;
-            let cur_var = VariableName::new(&format!("Boot{:#04}", cur));
+        let mut esp_path = None;
 
-            if let Ok(_) = efi_mgr.read(&cur_var, &mut buf) {
-                let desc_start_offset = (32+16)/8;
-                let desc = unsafe { CStr16::from_ptr(buf[desc_start_offset..].as_ptr().cast()) };
-                let desc_end_offset = desc_start_offset + desc.num_bytes();
+        if has_efi {
+            let efi_mgr = efivar::system();
+            let bootcurrent = VariableName::new("BootCurrent");
+            let mut buf: [u8; 1024] = [0u8; 1024];
+            let mut buf_cur: [u8; 2] = [0u8; 2];
+            if let Ok(_) = efi_mgr.read(&bootcurrent, &mut buf_cur) {
+                let cur = buf_cur[0] as u16 + buf_cur[1] as u16 * 256;
+                let cur_var = VariableName::new(&format!("Boot{:#04}", cur));
 
-                let device_path: &DevicePath = unsafe {
-                    std::mem::transmute(&buf[desc_end_offset..])
-                };
+                if let Ok(_) = efi_mgr.read(&cur_var, &mut buf) {
+                    let desc_start_offset = (32+16)/8;
+                    let desc = unsafe { CStr16::from_ptr(buf[desc_start_offset..].as_ptr().cast()) };
+                    let desc_end_offset = desc_start_offset + desc.num_bytes();
 
-                for node in device_path.node_iter() {
-                    if let Some(hdd) = node.as_hard_drive_media_device_path() {
-                        if hdd.partition_format() == PartitionFormat::GPT {
-                            if let Some(PartitionSignature::GUID(uuid)) = hdd.partition_signature() {
-                                esp_uuid = Some(uuid);
+                    let device_path: &DevicePath = unsafe {
+                        std::mem::transmute(&buf[desc_end_offset..])
+                    };
+
+                    for node in device_path.node_iter() {
+                        if let Some(hdd) = node.as_hard_drive_media_device_path() {
+                            if hdd.partition_format() == PartitionFormat::GPT {
+                                if let Some(PartitionSignature::GUID(uuid)) = hdd.partition_signature() {
+                                    esp_uuid = Some(uuid);
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        let mut seen_device_set = HashSet::new();
-        let mut esp_path = None;
-        if let Some(uuid) = esp_uuid {
+            let mut seen_device_set = HashSet::new();
             while esp_path.is_none() {
                 if let Ok(mut blocks) = Dir::open("/sys/block/", OFlag::O_DIRECTORY | OFlag::O_RDONLY, Mode::empty()) {
                     let blocks_iter = blocks.iter();
@@ -153,7 +154,15 @@ pub fn init(config: &Config) -> Result<()> {
                             let gpt_cfg = GptConfig::new().writable(false);
                             if let Ok(gpt_disk) = gpt_cfg.open(dev_disk) {
                                 for (i, part) in gpt_disk.partitions() {
-                                    if format!("{}", uuid) == format!("{}", part.part_guid) {
+                                    let is_match;
+                                    
+                                    if let Some(uuid) = esp_uuid {
+                                        is_match = format!("{}", uuid) == format!("{}", part.part_guid);
+                                    } else {
+                                        is_match = part.name == "acetone_boot";
+                                    }
+
+                                    if is_match {
                                         let with_p = PathBuf::from(format!("/dev/{}p{}", name, i));
                                         let without_p = PathBuf::from(format!("/dev/{}{}", name, i));
 
